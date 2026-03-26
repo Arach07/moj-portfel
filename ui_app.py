@@ -43,10 +43,7 @@ df = fetch_data()
 
 st.title("⚡ Szybki Portfel")
 
-# Zakładki u góry ekranu
-tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
-
-# FILTROWANIE MIESIĄCA (wspólne dla obu zakładek)
+# --- TUTAJ PRZENIOSŁEM WYBÓR MIESIĄCA NA SAMĄ GÓRĘ ---
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
     wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy)
@@ -54,6 +51,9 @@ if not df.empty:
 else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
+
+# Zakładki poniżej wyboru miesiąca
+tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
 
 # --- ZAKŁADKA 1: DODAWANIE I LISTA ---
 with tab_dodaj:
