@@ -7,6 +7,37 @@ from datetime import datetime
 # --- 1. KONFIGURACJA ---
 st.set_page_config(page_title="Szybki Portfel", page_icon="⚡", layout="centered")
 
+# --- CSS DLA MOBILNEGO UI (Ikony obok siebie + ładne karty) ---
+st.markdown("""
+    <style>
+    /* Wymuszenie ikon obok siebie na telefonie */
+    [data-testid="column"] {
+        width: calc(20% - 5px) !important;
+        flex: 1 1 calc(20% - 5px) !important;
+        min-width: 0px !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        gap: 5px !important;
+        justify-content: center !important;
+    }
+    /* Styl przycisków kategorii */
+    div.stButton > button {
+        width: 100% !important;
+        border-radius: 12px !important;
+        height: 55px !important;
+        padding: 0px !important;
+        font-size: 11px !important;
+        background-color: #ffffff !important;
+        border: 1px solid #eee !important;
+    }
+    /* Karty w historii */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 15px !important;
+        margin-bottom: 8px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- 2. POŁĄCZENIE ---
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
@@ -37,23 +68,25 @@ def fetch_data():
     except Exception as e:
         return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena", "created_at", "miesiac"])
 
-# --- 4. LOGIKA I INTERFEJS ---
+# --- 4. LOGIKA ---
 
 df = fetch_data()
 
+# --- INTERFEJS ---
+
 st.title("⚡ Szybki Portfel")
 
-# Zakładki u góry ekranu
-tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
-
-# FILTROWANIE MIESIĄCA (wspólne dla obu zakładek)
+# 1. FILTROWANIE MIESIĄCA NA SAMEJ GÓRZE
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
-    wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy)
+    wybrany_miesiac = st.selectbox("📅 Wybierz miesiąc", lista_miesiecy)
     df_view = df[df["miesiac"] == wybrany_miesiac]
 else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
+
+# 2. ZAKŁADKI PONIŻEJ FILTRA
+tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
 
 # --- ZAKŁADKA 1: DODAWANIE I LISTA ---
 with tab_dodaj:
@@ -74,15 +107,15 @@ with tab_dodaj:
         st.session_state.selected_kat = "Jedzenie"
 
     for i, (nazwa, ikona) in enumerate(kategorie.items()):
-        if cols[i].button(f"{ikona}\n{nazwa}"):
+        if cols[i].button(f"{ikona}\n{nazwa}", key=f"btn_{nazwa}"):
             st.session_state.selected_kat = nazwa
 
-    st.caption(f"Wybrano: {st.session_state.selected_kat}")
+    st.markdown(f"<p style='text-align:center; color:gray; font-size:14px;'>Wybrano: <b>{st.session_state.selected_kat}</b></p>", unsafe_allow_html=True)
 
     with st.form("form_dodaj", clear_on_submit=True):
         co = st.text_input("Nazwa")
         ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
-        if st.form_submit_button("ZAPISZ 🚀"):
+        if st.form_submit_button("ZAPISZ 🚀", use_container_width=True):
             if co and ile > 0:
                 supabase.table("wydatki").insert({
                     "kategoria": st.session_state.selected_kat, 
@@ -107,10 +140,9 @@ with tab_dodaj:
 
 # --- ZAKŁADKA 2: WYKRESY ---
 with tab_wykresy:
-    st.subheader(f"Analiza wydatków za {wybrany_miesiac}")
+    st.subheader(f"Analiza: {wybrany_miesiac}")
     
     if not df_view.empty:
-        # Wykres kołowy (Donut chart)
         fig = px.pie(
             df_view, 
             values='cena', 
@@ -118,14 +150,12 @@ with tab_wykresy:
             hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        # Centrowanie legendy i dopasowanie marginesów
         fig.update_layout(
             margin=dict(t=0, b=0, l=0, r=0),
             legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # Prosta tabelka z podsumowaniem pod wykresem
         st.divider()
         summary = df_view.groupby("kategoria")["cena"].sum().reset_index().sort_values(by="cena", ascending=False)
         st.dataframe(summary, hide_index=True, use_container_width=True)
