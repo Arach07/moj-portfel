@@ -7,6 +7,53 @@ from datetime import datetime
 # --- 1. KONFIGURACJA ---
 st.set_page_config(page_title="Szybki Portfel", page_icon="⚡", layout="centered")
 
+# --- CSS DLA LEPSZEGO UI (STYL JASNY - MOBILNY) ---
+st.markdown("""
+    <style>
+    /* 1. Naprawa ikon kategorii - wymuszenie rzędu */
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 5px !important;
+        justify-content: center !important;
+    }
+    [data-testid="column"] {
+        width: 19% !important;
+        flex: 1 1 19% !important;
+        min-width: 0px !important;
+    }
+
+    /* 2. Styl przycisków kategorii */
+    div.stButton > button {
+        width: 100% !important;
+        border-radius: 12px !important;
+        height: 55px !important;
+        padding: 0px !important;
+        font-size: 11px !important;
+        background-color: #fcfcfc !important;
+        border: 1px solid #eee !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* 3. Wygląd kart w historii (jak na zdjęciu) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 15px !important;
+        border: 1px solid #f0f0f0 !important;
+        background-color: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+        padding: 10px !important;
+        margin-bottom: 10px !important;
+    }
+
+    /* Wyśrodkowanie metryki */
+    [data-testid="stMetricValue"] {
+        text-align: center;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- 2. POŁĄCZENIE ---
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
@@ -30,7 +77,6 @@ def fetch_data():
             if "created_at" not in df.columns or df["created_at"].isnull().any():
                 df["created_at"] = df.get("created_at", datetime.now().isoformat())
                 df["created_at"] = df["created_at"].fillna(datetime.now().isoformat())
-            
             df["created_at"] = pd.to_datetime(df["created_at"])
             df["miesiac"] = df["created_at"].dt.strftime('%Y-%m')
         return df
@@ -43,30 +89,27 @@ df = fetch_data()
 
 st.title("⚡ Szybki Portfel")
 
-# Zakładki u góry ekranu
-tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
+tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj", "📊 Wykresy"])
 
-# FILTROWANIE MIESIĄCA (wspólne dla obu zakładek)
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
-    wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy)
+    wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy, label_visibility="collapsed")
     df_view = df[df["miesiac"] == wybrany_miesiac]
 else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
 
-# --- ZAKŁADKA 1: DODAWANIE I LISTA ---
 with tab_dodaj:
     # Statystyki
     with st.expander("💳 Budżet"):
         zarobki = st.number_input("Zarobki", value=7000.0)
-        limit = st.number_input("Limit wydatków", value=3000.0)
+        limit = st.number_input("Limit", value=3000.0)
 
     suma_m = df_view['cena'].sum() if not df_view.empty else 0.0
-    st.metric(f"Wydano ({wybrany_miesiac})", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
+    st.metric(f"Wydano w {wybrany_miesiac}", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
 
     # Szybkie dodawanie
-    st.subheader("🚀 Dodaj")
+    st.subheader("🚀 Kategoria")
     kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
 
     cols = st.columns(len(kategorie))
@@ -77,12 +120,12 @@ with tab_dodaj:
         if cols[i].button(f"{ikona}\n{nazwa}"):
             st.session_state.selected_kat = nazwa
 
-    st.caption(f"Wybrano: {st.session_state.selected_kat}")
+    st.markdown(f"<p style='text-align:center; color:gray;'>Wybrano: <b>{st.session_state.selected_kat}</b></p>", unsafe_allow_html=True)
 
     with st.form("form_dodaj", clear_on_submit=True):
         co = st.text_input("Nazwa")
         ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
-        if st.form_submit_button("ZAPISZ 🚀"):
+        if st.form_submit_button("ZAPISZ WYDATEK 🚀", use_container_width=True):
             if co and ile > 0:
                 supabase.table("wydatki").insert({
                     "kategoria": st.session_state.selected_kat, 
@@ -93,41 +136,28 @@ with tab_dodaj:
 
     # Historia
     st.divider()
+    st.subheader("📜 Historia")
     if not df_view.empty:
         for _, row in df_view.sort_values("id", ascending=False).iterrows():
             with st.container(border=True):
+                # Układ: Tekst | Cena | X
                 c1, c2, c3 = st.columns([3, 2, 1])
-                c1.write(f"**{row['produkt']}**")
-                c1.caption(f"{row['kategoria']}")
-                c2.write(f"{row['cena']:.2f} zł")
+                c1.markdown(f"**{row['produkt']}**\n<small>{row['kategoria']}</small>", unsafe_allow_html=True)
+                c2.markdown(f"**{row['cena']:.2f} zł**")
                 if c3.button("❌", key=f"del_{row['id']}"):
                     usun_wydatek(row['id'])
     else:
-        st.info("Brak wydatków w tym miesiącu.")
+        st.info("Brak wydatków.")
 
-# --- ZAKŁADKA 2: WYKRESY ---
 with tab_wykresy:
-    st.subheader(f"Analiza wydatków za {wybrany_miesiac}")
-    
+    st.subheader(f"Podsumowanie {wybrany_miesiac}")
     if not df_view.empty:
-        # Wykres kołowy (Donut chart)
-        fig = px.pie(
-            df_view, 
-            values='cena', 
-            names='kategoria', 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        # Centrowanie legendy i dopasowanie marginesów
-        fig.update_layout(
-            margin=dict(t=0, b=0, l=0, r=0),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
-        )
+        fig = px.pie(df_view, values='cena', names='kategoria', hole=0.5,
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), 
+                          legend=dict(orientation="h", y=-0.1, x=0.5, xanchor="center"))
         st.plotly_chart(fig, use_container_width=True)
         
-        # Prosta tabelka z podsumowaniem pod wykresem
         st.divider()
         summary = df_view.groupby("kategoria")["cena"].sum().reset_index().sort_values(by="cena", ascending=False)
-        st.dataframe(summary, hide_index=True, use_container_width=True)
-    else:
-        st.info("Dodaj pierwsze wydatki, aby zobaczyć wykres!")
+        st.table(summary)
