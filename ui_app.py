@@ -4,34 +4,37 @@ import plotly.express as px
 from supabase import create_client, Client
 from datetime import datetime
 
-# --- 1. KONFIGURACJA ---
+# --- 1. KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Szybki Portfel", page_icon="⚡", layout="centered")
 
-# --- 2. POŁĄCZENIE ---
+# Stylizacja przycisków (opcjonalnie dla lepszego wyglądu na telefonie)
+st.markdown("""
+    <style>
+    div.stButton > button {
+        width: 100%;
+        border-radius: 10px;
+        height: 60px;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. POŁĄCZENIE Z SUPABASE ---
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- 3. FUNKCJE (MUSZĄ BYĆ TUTAJ, ŻEBY PYTHON JE ZNAŁ) ---
-def wybierz_kategorie(nazwa):
-    st.session_state.selected_kat = nazwa
-
-def usun_wydatek(row_id):
-    """Usuwa konkretny wiersz z bazy Supabase"""
-    try:
-        supabase.table("wydatki").delete().eq("id", row_id).execute()
-        st.rerun()
-    except Exception as e:
-        st.error(f"Nie udało się usunąć: {e}")
+# --- 3. FUNKCJE (LOGIKA BAZY) ---
 
 def fetch_data():
-    """Pobiera dane i naprawia daty, jeśli ich brakuje"""
+    """Pobiera dane i przygotowuje kolumny daty"""
     try:
         res = supabase.table("wydatki").select("*").execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
             df["cena"] = pd.to_numeric(df["cena"])
-            # Naprawa dat dla starych wpisów
+            
+            # Naprawa daty: jeśli pusta, wstaw dzisiejszą
             if "created_at" not in df.columns or df["created_at"].isnull().any():
                 df["created_at"] = df.get("created_at", datetime.now().isoformat())
                 df["created_at"] = df["created_at"].fillna(datetime.now().isoformat())
@@ -42,40 +45,56 @@ def fetch_data():
     except Exception as e:
         return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena", "created_at", "miesiac"])
 
-# --- 4. LOGIKA I INTERFEJS ---
+def usun_wydatek(row_id):
+    """Usuwa wpis i odświeża stronę"""
+    supabase.table("wydatki").delete().eq("id", row_id).execute()
+    st.rerun()
 
+def wybierz_kategorie(nazwa):
+    """Callback dla szybszej zmiany kategorii"""
+    st.session_state.selected_kat = nazwa
+
+# --- 4. PRZYGOTOWANIE DANYCH ---
 df = fetch_data()
+
+# Inicjalizacja wybranej kategorii w pamięci sesji
+if 'selected_kat' not in st.session_state:
+    st.session_state.selected_kat = "Jedzenie"
+
+# --- 5. INTERFEJS UŻYTKOWNIKA ---
 
 st.title("⚡ Szybki Portfel")
 
-# Filtrowanie
+# SEKCJA: WYBÓR MIESIĄCA
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
-    wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy)
+    wybrany_miesiac = st.selectbox("📅 Wybierz miesiąc", lista_miesiecy)
     df_view = df[df["miesiac"] == wybrany_miesiac]
 else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
 
-# Statystyki
-with st.expander("💳 Budżet"):
-    zarobki = st.number_input("Zarobki", value=7000.0)
-    limit = st.number_input("Limit wydatków", value=3000.0)
+# SEKCJA: STATYSTYKI (ZAROBKI I LIMIT)
+with st.expander("💳 Ustawienia budżetu"):
+    zarobki = st.number_input("Twoje zarobki (zł)", value=7000.0)
+    limit = st.number_input("Miesięczny limit (zł)", value=3000.0)
 
 suma_m = df_view['cena'].sum() if not df_view.empty else 0.0
-st.metric(f"Wydano ({wybrany_miesiac})", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
+st.metric(f"Wydano w {wybrany_miesiac}", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
 
-# Szybkie dodawanie
-st.subheader("🚀 Dodaj")
-kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
-
-if 'selected_kat' not in st.session_state:
-    st.session_state.selected_kat = "Jedzenie"
+# SEKCJA: SZYBKIE DODAWANIE (IKONY)
+st.subheader("🚀 Wybierz kategorię")
+kategorie = {
+    "Jedzenie": "🍕", 
+    "Transport": "🚗", 
+    "Dom": "🏠", 
+    "Rozrywka": "🎬", 
+    "Inne": "📦"
+}
 
 cols = st.columns(len(kategorie))
-
 for i, (nazwa, ikona) in enumerate(kategorie.items()):
-    # Używamy on_click, żeby zmiana była natychmiastowa
+    # Przycisk z on_click działa znacznie szybciej
     cols[i].button(
         f"{ikona}\n{nazwa}", 
         key=f"btn_{nazwa}", 
@@ -83,18 +102,9 @@ for i, (nazwa, ikona) in enumerate(kategorie.items()):
         args=(nazwa,)
     )
 
-    # Wyświetlamy wybraną kategorię z lekkim wyróżnieniem
-st.markdown(f"### Wybrano: {kategorie[st.session_state.selected_kat]} **{st.session_state.selected_kat}**")
+# Wyświetlamy aktualnie wybrany typ dużym napisem
+st.info(f"Wybrana kategoria: **{st.session_state.selected_kat}** {kategorie[st.session_state.selected_kat]}")
 
-# Historia z usuwaniem
-st.divider()
-if not df_view.empty:
-    for _, row in df_view.sort_values("id", ascending=False).iterrows():
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([3, 2, 1])
-            c1.write(f"**{row['produkt']}**")
-            c1.caption(f"{row['kategoria']}")
-            c2.write(f"{row['cena']:.2f} zł")
-            # TU BYŁ BŁĄD - teraz funkcja jest zdefiniowana wyżej, więc zadziała
-            if c3.button("❌", key=f"del_{row['id']}"):
-                usun_wydatek(row['id'])
+with st.form("form_dodaj", clear_on_submit=True):
+    co = st.text_input("Nazwa zakupu (np. Biedronka)")
+    ile = st.number_
