@@ -31,16 +31,19 @@ def fetch_data():
         df = pd.DataFrame(res.data)
         if not df.empty:
             df["cena"] = pd.to_numeric(df["cena"])
-            # Konwersja daty na format czytelny dla Pythona
+            
+            # Jeśli kolumna created_at nie istnieje lub jest pusta, stwórzmy ją sztucznie dla starych wpisów
+            if "created_at" not in df.columns or df["created_at"].isnull().any():
+                df["created_at"] = df.get("created_at", datetime.now().isoformat())
+                df["created_at"] = df["created_at"].fillna(datetime.now().isoformat())
+            
             df["created_at"] = pd.to_datetime(df["created_at"])
             df["miesiac"] = df["created_at"].dt.strftime('%Y-%m')
         return df
-    except:
+    except Exception as e:
+        # To pomoże Ci zobaczyć błąd w logach, jeśli coś pójdzie nie tak
+        print(f"Błąd pobierania: {e}")
         return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena", "created_at", "miesiac"])
-
-def usun_wydatek(row_id):
-    supabase.table("wydatki").delete().eq("id", row_id).execute()
-    st.rerun()
 
 # --- LOGIKA APLIKACJI ---
 df = fetch_data()
