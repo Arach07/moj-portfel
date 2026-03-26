@@ -12,10 +12,9 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- 3. FUNKCJE (MUSZĄ BYĆ TUTAJ, ŻEBY PYTHON JE ZNAŁ) ---
+# --- 3. FUNKCJE ---
 
 def usun_wydatek(row_id):
-    """Usuwa konkretny wiersz z bazy Supabase"""
     try:
         supabase.table("wydatki").delete().eq("id", row_id).execute()
         st.rerun()
@@ -23,13 +22,11 @@ def usun_wydatek(row_id):
         st.error(f"Nie udało się usunąć: {e}")
 
 def fetch_data():
-    """Pobiera dane i naprawia daty, jeśli ich brakuje"""
     try:
         res = supabase.table("wydatki").select("*").execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
             df["cena"] = pd.to_numeric(df["cena"])
-            # Naprawa dat dla starych wpisów
             if "created_at" not in df.columns or df["created_at"].isnull().any():
                 df["created_at"] = df.get("created_at", datetime.now().isoformat())
                 df["created_at"] = df["created_at"].fillna(datetime.now().isoformat())
@@ -46,7 +43,10 @@ df = fetch_data()
 
 st.title("⚡ Szybki Portfel")
 
-# Filtrowanie
+# Zakładki u góry ekranu
+tab_dodaj, tab_wykresy = st.tabs(["➕ Dodaj & Historia", "📊 Wykresy"])
+
+# FILTROWANIE MIESIĄCA (wspólne dla obu zakładek)
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
     wybrany_miesiac = st.selectbox("📅 Miesiąc", lista_miesiecy)
@@ -55,49 +55,79 @@ else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
 
-# Statystyki
-with st.expander("💳 Budżet"):
-    zarobki = st.number_input("Zarobki", value=7000.0)
-    limit = st.number_input("Limit wydatków", value=3000.0)
+# --- ZAKŁADKA 1: DODAWANIE I LISTA ---
+with tab_dodaj:
+    # Statystyki
+    with st.expander("💳 Budżet"):
+        zarobki = st.number_input("Zarobki", value=7000.0)
+        limit = st.number_input("Limit wydatków", value=3000.0)
 
-suma_m = df_view['cena'].sum() if not df_view.empty else 0.0
-st.metric(f"Wydano ({wybrany_miesiac})", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
+    suma_m = df_view['cena'].sum() if not df_view.empty else 0.0
+    st.metric(f"Wydano ({wybrany_miesiac})", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
 
-# Szybkie dodawanie
-st.subheader("🚀 Dodaj")
-kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
+    # Szybkie dodawanie
+    st.subheader("🚀 Dodaj")
+    kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
 
-cols = st.columns(len(kategorie))
-if 'selected_kat' not in st.session_state:
-    st.session_state.selected_kat = "Jedzenie"
+    cols = st.columns(len(kategorie))
+    if 'selected_kat' not in st.session_state:
+        st.session_state.selected_kat = "Jedzenie"
 
-for i, (nazwa, ikona) in enumerate(kategorie.items()):
-    if cols[i].button(f"{ikona}\n{nazwa}"):
-        st.session_state.selected_kat = nazwa
+    for i, (nazwa, ikona) in enumerate(kategorie.items()):
+        if cols[i].button(f"{ikona}\n{nazwa}"):
+            st.session_state.selected_kat = nazwa
 
-st.caption(f"Wybrano: {st.session_state.selected_kat}")
+    st.caption(f"Wybrano: {st.session_state.selected_kat}")
 
-with st.form("form_dodaj", clear_on_submit=True):
-    co = st.text_input("Nazwa")
-    ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
-    if st.form_submit_button("ZAPISZ 🚀"):
-        if co and ile > 0:
-            supabase.table("wydatki").insert({
-                "kategoria": st.session_state.selected_kat, 
-                "produkt": co, 
-                "cena": ile
-            }).execute()
-            st.rerun()
+    with st.form("form_dodaj", clear_on_submit=True):
+        co = st.text_input("Nazwa")
+        ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
+        if st.form_submit_button("ZAPISZ 🚀"):
+            if co and ile > 0:
+                supabase.table("wydatki").insert({
+                    "kategoria": st.session_state.selected_kat, 
+                    "produkt": co, 
+                    "cena": ile
+                }).execute()
+                st.rerun()
 
-# Historia z usuwaniem
-st.divider()
-if not df_view.empty:
-    for _, row in df_view.sort_values("id", ascending=False).iterrows():
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([3, 2, 1])
-            c1.write(f"**{row['produkt']}**")
-            c1.caption(f"{row['kategoria']}")
-            c2.write(f"{row['cena']:.2f} zł")
-            # TU BYŁ BŁĄD - teraz funkcja jest zdefiniowana wyżej, więc zadziała
-            if c3.button("❌", key=f"del_{row['id']}"):
-                usun_wydatek(row['id'])
+    # Historia
+    st.divider()
+    if not df_view.empty:
+        for _, row in df_view.sort_values("id", ascending=False).iterrows():
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([3, 2, 1])
+                c1.write(f"**{row['produkt']}**")
+                c1.caption(f"{row['kategoria']}")
+                c2.write(f"{row['cena']:.2f} zł")
+                if c3.button("❌", key=f"del_{row['id']}"):
+                    usun_wydatek(row['id'])
+    else:
+        st.info("Brak wydatków w tym miesiącu.")
+
+# --- ZAKŁADKA 2: WYKRESY ---
+with tab_wykresy:
+    st.subheader(f"Analiza wydatków za {wybrany_miesiac}")
+    
+    if not df_view.empty:
+        # Wykres kołowy (Donut chart)
+        fig = px.pie(
+            df_view, 
+            values='cena', 
+            names='kategoria', 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Pastel
+        )
+        # Centrowanie legendy i dopasowanie marginesów
+        fig.update_layout(
+            margin=dict(t=0, b=0, l=0, r=0),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Prosta tabelka z podsumowaniem pod wykresem
+        st.divider()
+        summary = df_view.groupby("kategoria")["cena"].sum().reset_index().sort_values(by="cena", ascending=False)
+        st.dataframe(summary, hide_index=True, use_container_width=True)
+    else:
+        st.info("Dodaj pierwsze wydatki, aby zobaczyć wykres!")
