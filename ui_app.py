@@ -7,7 +7,7 @@ from datetime import datetime
 # --- 1. KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Szybki Portfel", page_icon="⚡", layout="centered")
 
-# Stylizacja przycisków (opcjonalnie dla lepszego wyglądu na telefonie)
+# Stylizacja przycisków
 st.markdown("""
     <style>
     div.stButton > button {
@@ -24,48 +24,40 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- 3. FUNKCJE (LOGIKA BAZY) ---
+# --- 3. FUNKCJE ---
 
 def fetch_data():
-    """Pobiera dane i przygotowuje kolumny daty"""
     try:
         res = supabase.table("wydatki").select("*").execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
             df["cena"] = pd.to_numeric(df["cena"])
-            
-            # Naprawa daty: jeśli pusta, wstaw dzisiejszą
             if "created_at" not in df.columns or df["created_at"].isnull().any():
-                df["created_at"] = df.get("created_at", datetime.now().isoformat())
-                df["created_at"] = df["created_at"].fillna(datetime.now().isoformat())
-            
+                df["created_at"] = datetime.now().isoformat()
             df["created_at"] = pd.to_datetime(df["created_at"])
             df["miesiac"] = df["created_at"].dt.strftime('%Y-%m')
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena", "created_at", "miesiac"])
 
 def usun_wydatek(row_id):
-    """Usuwa wpis i odświeża stronę"""
     supabase.table("wydatki").delete().eq("id", row_id).execute()
     st.rerun()
 
 def wybierz_kategorie(nazwa):
-    """Callback dla szybszej zmiany kategorii"""
     st.session_state.selected_kat = nazwa
 
-# --- 4. PRZYGOTOWANIE DANYCH ---
+# --- 4. PRZYGOTOWANIE ---
 df = fetch_data()
 
-# Inicjalizacja wybranej kategorii w pamięci sesji
 if 'selected_kat' not in st.session_state:
     st.session_state.selected_kat = "Jedzenie"
 
-# --- 5. INTERFEJS UŻYTKOWNIKA ---
+# --- 5. INTERFEJS ---
 
 st.title("⚡ Szybki Portfel")
 
-# SEKCJA: WYBÓR MIESIĄCA
+# Wybór miesiąca
 if not df.empty:
     lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
     wybrany_miesiac = st.selectbox("📅 Wybierz miesiąc", lista_miesiecy)
@@ -74,7 +66,7 @@ else:
     wybrany_miesiac = datetime.now().strftime('%Y-%m')
     df_view = df
 
-# SEKCJA: STATYSTYKI (ZAROBKI I LIMIT)
+# Budżet
 with st.expander("💳 Ustawienia budżetu"):
     zarobki = st.number_input("Twoje zarobki (zł)", value=7000.0)
     limit = st.number_input("Miesięczny limit (zł)", value=3000.0)
@@ -82,29 +74,43 @@ with st.expander("💳 Ustawienia budżetu"):
 suma_m = df_view['cena'].sum() if not df_view.empty else 0.0
 st.metric(f"Wydano w {wybrany_miesiac}", f"{suma_m:.2f} zł", delta=f"{limit-suma_m:.2f} limitu")
 
-# SEKCJA: SZYBKIE DODAWANIE (IKONY)
+# Przyciski kategorii
 st.subheader("🚀 Wybierz kategorię")
-kategorie = {
-    "Jedzenie": "🍕", 
-    "Transport": "🚗", 
-    "Dom": "🏠", 
-    "Rozrywka": "🎬", 
-    "Inne": "📦"
-}
-
+kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
 cols = st.columns(len(kategorie))
+
 for i, (nazwa, ikona) in enumerate(kategorie.items()):
-    # Przycisk z on_click działa znacznie szybciej
-    cols[i].button(
-        f"{ikona}\n{nazwa}", 
-        key=f"btn_{nazwa}", 
-        on_click=wybierz_kategorie, 
-        args=(nazwa,)
-    )
+    cols[i].button(f"{ikona}\n{nazwa}", key=f"btn_{nazwa}", on_click=wybierz_kategorie, args=(nazwa,))
 
-# Wyświetlamy aktualnie wybrany typ dużym napisem
-st.info(f"Wybrana kategoria: **{st.session_state.selected_kat}** {kategorie[st.session_state.selected_kat]}")
+st.info(f"Wybrana kategoria: **{st.session_state.selected_kat}**")
 
+# FORMULARZ (Tu był błąd - teraz jest poprawiony)
 with st.form("form_dodaj", clear_on_submit=True):
-    co = st.text_input("Nazwa zakupu (np. Biedronka)")
-    ile = st.number_
+    co = st.text_input("Nazwa zakupu")
+    ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01) # Tu była ucięta linia!
+    
+    if st.form_submit_button("ZAPISZ WYDATEK 🚀"):
+        if co and ile > 0:
+            supabase.table("wydatki").insert({
+                "kategoria": st.session_state.selected_kat, 
+                "produkt": co, 
+                "cena": ile
+            }).execute()
+            st.rerun()
+
+# Wykres i Historia
+if not df_view.empty:
+    st.divider()
+    fig = px.pie(df_view, values='cena', names='kategoria', hole=0.5)
+    fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("📜 Lista")
+    for _, row in df_view.sort_values("id", ascending=False).iterrows():
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([3, 2, 1])
+            c1.write(f"**{row['produkt']}**")
+            c1.caption(f"{row['kategoria']}")
+            c2.write(f"{row['cena']:.2f} zł")
+            if c3.button("❌", key=f"del_{row['id']}"):
+                usun_wydatek(row['id'])
