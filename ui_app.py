@@ -2,9 +2,22 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
+from datetime import datetime
 
 # --- KONFIGURACJA ---
-st.set_page_config(page_title="Mój Portfel", page_icon="💰", layout="centered")
+st.set_page_config(page_title="Szybki Portfel", page_icon="⚡", layout="centered")
+
+# CSS dla ładniejszych przycisków (opcjonalne, dla lepszego wyglądu)
+st.markdown("""
+    <style>
+    .stButton > button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #f0f2f6;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Połączenie z Supabase
 url = st.secrets["SUPABASE_URL"]
@@ -18,78 +31,89 @@ def fetch_data():
         df = pd.DataFrame(res.data)
         if not df.empty:
             df["cena"] = pd.to_numeric(df["cena"])
+            # Konwersja daty na format czytelny dla Pythona
+            df["created_at"] = pd.to_datetime(df["created_at"])
+            df["miesiac"] = df["created_at"].dt.strftime('%Y-%m')
         return df
     except:
-        return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena"])
+        return pd.DataFrame(columns=["id", "kategoria", "produkt", "cena", "created_at", "miesiac"])
 
 def usun_wydatek(row_id):
     supabase.table("wydatki").delete().eq("id", row_id).execute()
     st.rerun()
 
-# --- UI GŁÓWNE ---
-st.title("💰 Mój Portfel")
-
-# --- SEKCJA BUDŻETU ---
-with st.expander("💳 Ustawienia Budżetu", expanded=False):
-    col_b1, col_b2 = st.columns(2)
-    zarobki = col_b1.number_input("Twoje zarobki (zł)", value=7000.0, step=100.0)
-    limit_wydatkow = col_b2.number_input("Limit na wydatki (zł)", value=3000.0, step=100.0)
-
+# --- LOGIKA APLIKACJI ---
 df = fetch_data()
-suma_wydatkow = df['cena'].sum() if not df.empty else 0.0
-zostalo_z_limitu = limit_wydatkow - suma_wydatkow
-oszczednosci = zarobki - suma_wydatkow
 
-# --- DASHBOARD NA GÓRZE ---
-c1, c2, c3 = st.columns(3)
-c1.metric("Wydano", f"{suma_wydatkow:.2f} zł")
-c2.metric("Z limitu", f"{zostalo_z_limitu:.2f} zł", delta=float(zostalo_z_limitu), delta_color="normal")
-c3.metric("Oszczędności", f"{oszczednosci:.2f} zł")
+st.title("⚡ Szybki Portfel")
 
-# Wykres (tylko jeśli są dane)
+# --- FILTROWANIE PO MIESIĄCU ---
 if not df.empty:
-    fig = px.pie(df, values='cena', names='kategoria', hole=0.5,
-                 color_discrete_sequence=px.colors.qualitative.Pastel)
-    fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=250)
-    st.plotly_chart(fig, use_container_width=True)
+    lista_miesiecy = sorted(df["miesiac"].unique(), reverse=True)
+    wybrany_miesiac = st.selectbox("📅 Wybierz miesiąc", lista_miesiecy)
+    df_view = df[df["miesiac"] == wybrany_miesiac]
+else:
+    wybrany_miesiac = datetime.now().strftime('%Y-%m')
+    df_view = df
 
-st.divider()
+# --- BUDŻET (Szybki podgląd) ---
+with st.expander("💳 Ustawienia"):
+    zarobki = st.number_input("Zarobki", value=7000.0)
+    limit = st.number_input("Limit", value=3000.0)
 
-# --- FORMULARZ DODAWANIA ---
-st.subheader("➕ Dodaj nowy wydatek")
-with st.form("dodaj_form", clear_on_submit=True):
-    kat = st.selectbox("Kategoria", ["Jedzenie", "Dom", "Transport", "Rozrywka", "Inne"])
+suma_miesiaca = df_view['cena'].sum() if not df_view.empty else 0.0
+st.metric(f"Wydano w {wybrany_miesiac}", f"{suma_miesiaca:.2f} zł", delta=f"{limit-suma_miesiaca:.2f} limitu")
+
+# --- NOWY INTERFEJS DODAWANIA (IKONY) ---
+st.subheader("🚀 Szybkie dodawanie")
+
+# Słownik kategorii z ikonami
+kategorie = {
+    "Jedzenie": "🍕",
+    "Transport": "🚗",
+    "Dom": "🏠",
+    "Rozrywka": "🎬",
+    "Inne": "📦"
+}
+
+# Tworzymy kolumny dla przycisków kategorii
+cols = st.columns(len(kategorie))
+if 'selected_kat' not in st.session_state:
+    st.session_state.selected_kat = "Jedzenie"
+
+for i, (nazwa, ikona) in enumerate(kategorie.items()):
+    if cols[i].button(f"{ikona}\n{nazwa}"):
+        st.session_state.selected_kat = nazwa
+
+# Informacja co wybrano
+st.info(f"Wybrana kategoria: **{st.session_state.selected_kat}** {kategorie[st.session_state.selected_kat]}")
+
+with st.form("form_dodaj", clear_on_submit=True):
     co = st.text_input("Co kupiłeś?")
     ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
     
-    if st.form_submit_button("Zapisz wydatek 🚀"):
+    if st.form_submit_button("ZAPISZ 🚀"):
         if co and ile > 0:
             supabase.table("wydatki").insert({
-                "kategoria": kat, 
+                "kategoria": st.session_state.selected_kat, 
                 "produkt": co, 
                 "cena": ile
             }).execute()
             st.rerun()
 
-st.divider()
+# --- WYKRES ---
+if not df_view.empty:
+    fig = px.pie(df_view, values='cena', names='kategoria', hole=0.4)
+    fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=250)
+    st.plotly_chart(fig, use_container_width=True)
 
-# --- LISTA WYDATKÓW (PONIŻEJ) ---
-st.subheader("📜 Ostatnie wydatki")
-if not df.empty:
-    # Sortowanie od najnowszego
-    df_sorted = df.sort_values(by="id", ascending=False)
-    
-    for index, row in df_sorted.iterrows():
-        with st.container(border=True):
-            col_text, col_price, col_del = st.columns([3, 2, 1])
-            with col_text:
-                st.write(f"**{row['produkt']}**")
-                st.caption(f"{row['kategoria']}")
-            with col_price:
-                st.write(f"{row['cena']:.2f} zł")
-            with col_del:
-                # Przycisk usuwania dopasowany do ID z Supabase
-                if st.button("❌", key=f"del_{row['id']}"):
-                    usun_wydatek(row['id'])
-else:
-    st.info("Brak wpisów. Zacznij oszczędzać!")
+# --- LISTA ---
+st.subheader("📜 Historia")
+for index, row in df_view.sort_values("id", ascending=False).iterrows():
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([3, 2, 1])
+        c1.write(f"**{row['produkt']}**")
+        c1.caption(f"{row['kategoria']}")
+        c2.write(f"{row['cena']:.2f} zł")
+        if c3.button("❌", key=f"del_{row['id']}"):
+            usun_wydatek(row['id'])
