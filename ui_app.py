@@ -8,8 +8,8 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Mój Portfel Mobilny", page_icon="📱", layout="centered")
 
 # Połączenie z Supabase (z Twoich Secrets)
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
+url = st.secrets["https://dyvzijstosvvetdogbow.supabase.co"]
+key = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR5dnppanN0b3N2dmV0ZG9nYm93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MzQ2ODIsImV4cCI6MjA5MDExMDY4Mn0.I2YXqndybhGAnOePM_HSlGb0SB5JaxM38mlB2dASR-o"]
 supabase: Client = create_client(url, key)
 
 # --- FUNKCJE BAZY DANYCH ---
