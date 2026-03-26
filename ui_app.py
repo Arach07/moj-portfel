@@ -13,6 +13,8 @@ key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
 # --- 3. FUNKCJE (MUSZĄ BYĆ TUTAJ, ŻEBY PYTHON JE ZNAŁ) ---
+def wybierz_kategorie(nazwa):
+    st.session_state.selected_kat = nazwa
 
 def usun_wydatek(row_id):
     """Usuwa konkretny wiersz z bazy Supabase"""
@@ -67,27 +69,22 @@ st.metric(f"Wydano ({wybrany_miesiac})", f"{suma_m:.2f} zł", delta=f"{limit-sum
 st.subheader("🚀 Dodaj")
 kategorie = {"Jedzenie": "🍕", "Transport": "🚗", "Dom": "🏠", "Rozrywka": "🎬", "Inne": "📦"}
 
-cols = st.columns(len(kategorie))
 if 'selected_kat' not in st.session_state:
     st.session_state.selected_kat = "Jedzenie"
 
+cols = st.columns(len(kategorie))
+
 for i, (nazwa, ikona) in enumerate(kategorie.items()):
-    if cols[i].button(f"{ikona}\n{nazwa}"):
-        st.session_state.selected_kat = nazwa
+    # Używamy on_click, żeby zmiana była natychmiastowa
+    cols[i].button(
+        f"{ikona}\n{nazwa}", 
+        key=f"btn_{nazwa}", 
+        on_click=wybierz_kategorie, 
+        args=(nazwa,)
+    )
 
-st.caption(f"Wybrano: {st.session_state.selected_kat}")
-
-with st.form("form_dodaj", clear_on_submit=True):
-    co = st.text_input("Nazwa")
-    ile = st.number_input("Kwota (zł)", min_value=0.0, step=0.01)
-    if st.form_submit_button("ZAPISZ 🚀"):
-        if co and ile > 0:
-            supabase.table("wydatki").insert({
-                "kategoria": st.session_state.selected_kat, 
-                "produkt": co, 
-                "cena": ile
-            }).execute()
-            st.rerun()
+    # Wyświetlamy wybraną kategorię z lekkim wyróżnieniem
+st.markdown(f"### Wybrano: {kategorie[st.session_state.selected_kat]} **{st.session_state.selected_kat}**")
 
 # Historia z usuwaniem
 st.divider()
